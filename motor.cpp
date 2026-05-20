@@ -1,33 +1,15 @@
 #include "Arduino.h"
 #include "motor.h"
 
-// class motor{
-//   private:
-//   int _enablePin;
-//   int _in1Pin;
-//   int _in2Pin;
-//   int _currentSpeed;
-//   bool _isEnabled;
 
-//   public:
-//   motor(int enablePin, int in1Pin, int in2Pin);
-//   ~motor();
-//   void begin();
-//   void forward(int speed);
-//   void backward(int speed);
-//   void stop();
-//   void brake();
-//   int getCurrentSpeed() const;
-//   bool isEnabled() const;
-
-//   void setSpeed(int speed);
-// };
-motor::motor(int enablePin, int in1Pin, int in2Pin){
+motor::motor(int enablePin, int in1Pin, int in2Pin, bool reversed){
   _enablePin = enablePin;
   _in1Pin = in1Pin;
   _in2Pin = in2Pin;
   _currentSpeed = 0;
   _isEnabled = false;
+  _reversed = reversed;
+
 }
 motor::~motor(){
   stop();
@@ -50,16 +32,16 @@ void motor::begin(){
 }
 void motor::forward(int speed){
   speed = constrain(speed,0,255);
-  digitalWrite(_in1Pin, HIGH);
-  digitalWrite(_in2Pin, LOW);
+  digitalWrite(_in1Pin, _reversed?LOW:HIGH);
+  digitalWrite(_in2Pin, _reversed?HIGH:LOW);
   analogWrite(_enablePin,speed);
   _currentSpeed = speed;
   _isEnabled = (speed > 0);
 }
 void motor::backward(int speed){
   speed = constrain(speed, 0, 255);
-  digitalWrite(_in1Pin, LOW);
-  digitalWrite(_in2Pin, HIGH);
+  digitalWrite(_in1Pin, _reversed?HIGH:LOW);
+  digitalWrite(_in2Pin, _reversed?LOW:HIGH);
   analogWrite(_enablePin, speed);
   _currentSpeed = -speed;
   _isEnabled = (speed > 0);
@@ -79,16 +61,14 @@ void motor::brake(){
   stop();
   Serial.println("Motor braked.");
 }
-void statetalk(){
-    Serial.print("motorB speed: ");
-    Serial.print(motorB.getCurrentSpeed());
-    Serial.print(" | motorC speed: ");
-    Serial.println(motorC.getCurrentSpeed());
-    Serial.print("motorB enabled: ");
-    Serial.print(motorB.isEnabled() ? "YES" : "NO");
-    Serial.print(" | motorC enabled: ");
-    Serial.println(motorC.isEnabled() ? "YES" : "NO");
-    Serial.println("---------------------");
+void motor::statetalk(){
+    Serial.print("motor(EN=");
+    Serial.print(_enablePin);
+    Serial.print(") speed: ");
+    Serial.print(getCurrentSpeed());
+    Serial.print(" | enabled: ");
+    Serial.print(isEnabled() ? "YES" : "NO");
+    Serial.println();
 }
 int motor::getCurrentSpeed() const {
   return _currentSpeed;
