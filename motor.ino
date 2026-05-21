@@ -4,12 +4,17 @@
 // ============================================================
 // 编码器引脚定义
 // Mega 2560 支持的外部中断引脚：2, 3, 18, 19, 20, 21
-// 用 CHANGE 模式触发，每路编码器接 2 个中断引脚
 // ============================================================
 #define L_ENA 2                             // 左编码器 A 相 — 中断引脚
 #define L_ENB 3                             // 左编码器 B 相 — 中断引脚
-#define R_ENA 18                            // 右编码器 A 相 — 中断引脚
-#define R_ENB 19                            // 右编码器 B 相 — 中断引脚
+#define R_ENA 19                            // 右编码器 A 相 — 中断引脚
+#define R_ENB 18                            // 右编码器 B 相 — 中断引脚
+
+// ============================================================
+// 按钮引脚
+// 接法：按钮一脚接引脚，另一脚接 GND（用 INPUT_PULLUP，按下=LOW）
+// ============================================================
+#define BTN_PIN 6
 
 // ============================================================
 // 编码器脉冲计数器（volatile：ISR 和主循环共享，禁止编译器优化）
@@ -21,7 +26,7 @@ long L_EN_LastCNT = 0;                      // 左轮上次脉冲（用于计算
 long R_EN_LastCNT = 0;                      // 右轮上次脉冲
 
 // ============================================================
-// 定时器 ISR 计算结果缓存（在 ISR 里算好，loop() 里打印）
+// 定时器 ISR 计算结果缓存
 // ============================================================
 double LAngle = 0, RAngle = 0;              // 角度（度）
 double LSpeed = 0, RSpeed = 0;              // 速度（RPM）
@@ -29,11 +34,28 @@ float Ldistance_m = 0, Rdistance_m = 0;     // 距离（米）
 volatile bool dataReady = false;            // 新数据就绪标志
 
 // ============================================================
+// 按钮去抖 & 状态机
+// btnMode: 0=停止  1=正转  2=反转  （按一下换一个）
+// ============================================================
+int btnMode = 0;                            // 当前模式：0停 1正 2反
+int btnStable = HIGH;                       // 确认后的状态（稳定值）
+int btnLastReading = HIGH;                  // 上一次读到的原始值（用于检测跳变）
+unsigned long btnLastTime = 0;              // 最后一次跳变的时间（去抖用）
+int printTick = 0;                          // 打印计数器，每10次(500ms)才打印一次编码器
+
+// ============================================================
 // 电机对象
 // 参数：使能引脚, IN1, IN2, 线序反转（true=已反转）
 // ============================================================
-motor motorB(9, 6, 7, false);               // B电机：PWM=9, IN1=6, IN2=7
-motor motorC(10, 11, 12, false);            // C电机：PWM=10, IN1=11, IN2=12
+motor motorA(13, 26, 28, false);            // A电机：PWM=13, IN1=26, IN2=28
+motor motorB(10, 24, 22, false);            // B电机：PWM=10, IN1=24, IN2=22
+
+#define target_rpm 150
+#define KP 0.5
+int pwmA = 150;
+int pwmB = 150;
+
+
 
 // ============================================================
 // 编码器 A 相中断：通过 A/B 相 XOR 判断旋转方向
@@ -41,9 +63,9 @@ motor motorC(10, 11, 12, false);            // C电机：PWM=10, IN1=11, IN2=12
 // ============================================================
 void L_ENA_IRQ() {
   if (digitalRead(L_ENA) ^ digitalRead(L_ENB)) {
-    L_EN_CNT--;                             // 反转：脉冲减
+    L_EN_CNT--;
   } else {
-    L_EN_CNT++;                             // 正转：脉冲加
+    L_EN_CNT++;
   }
 }
 
@@ -73,87 +95,167 @@ void R_ENB_IRQ() {
 
 // ============================================================
 // 定时器中断（每 50ms 触发一次）
-// 读取编码器计数器，计算角度、速度、行驶距离
 // ============================================================
 void timerISR() {
-  // 原子读取 4 字节 long（AVR 上非原子，关中断防止 GPIO ISR 插进来改一半）
   noInterrupts();
   long lCnt = L_EN_CNT;
   long rCnt = R_EN_CNT;
   interrupts();
 
-  // 角度计算：脉冲数 / 每圈脉冲 × 360°
   LAngle = lCnt * 360.0 / 1040;
   RAngle = rCnt * 360.0 / 1040;
 
-  // 速度计算：(本次脉冲 - 上次脉冲) / 每圈脉冲 / 时间间隔 × 转换系数
-  // 结果单位：RPM（转/分钟）
   LSpeed = (lCnt - L_EN_LastCNT) * 1000.0 * 60 / 1040 / 50;
   RSpeed = (rCnt - R_EN_LastCNT) * 1000.0 * 60 / 1040 / 50;
 
-  // 距离计算：圈数 × 每圈周长
-  // 151mm = 轮子周长（按实际轮径调整此值）
   long Ldistance_mm = (lCnt / 1040) * 151;
-  Ldistance_m = Ldistance_mm / 1000.0;      // 转换为米
+  Ldistance_m = Ldistance_mm / 1000.0;
   long Rdistance_mm = (rCnt / 1040) * 151;
   Rdistance_m = Rdistance_mm / 1000.0;
 
-  L_EN_LastCNT = lCnt;                      // 保存当前脉冲供下次速度计算
+  L_EN_LastCNT = lCnt;
   R_EN_LastCNT = rCnt;
 
-  dataReady = true;                         // 通知 loop() 有新数据
+  dataReady = true;
+}
+
+// ============================================================
+// 根据 btnMode 控制电机
+// ============================================================
+void doMotor() {
+  switch (btnMode) {
+    case 0:  // 停止
+      motorA.stop();
+      motorB.stop();
+      break;
+    case 1:  // 正转
+      motorA.forward(pwmA);
+      motorB.forward(pwmB);
+      break;
+    case 2:  // 反转
+      motorA.backward(pwmA);
+      motorB.backward(pwmB);
+      break;
+  }
+}
+
+// ============================================================
+// 按钮检测（带去抖，检测"按下"那一瞬间）
+// 原理：
+//   btnLastReading — 每次 loop 都更新，用来发现电平跳变
+//   btnStable — 只有稳定超过 50ms 后才更新，用来判断"真按下"
+//   两个变量分开，就不会出现"证据被覆盖"的 bug
+// ============================================================
+void checkButton() {
+  int reading = digitalRead(BTN_PIN);
+
+  // 电平跳变了 → 重置计时器（可能是抖动，也可能是真按）
+  if (reading != btnLastReading) {
+    btnLastTime = millis();
+  }
+
+  // 稳定超过 50ms → reading 是可信的
+  if (millis() - btnLastTime > 50) {
+    // 可信值和之前不一样 → 真的变了
+    if (reading != btnStable) {
+      btnStable = reading;                  // 更新可信值
+
+      // 按下（INPUT_PULLUP 模式，LOW = 按下）
+      if (reading == LOW) {
+        btnMode++;
+        if (btnMode > 2) btnMode = 0;
+        doMotor();
+
+        Serial.println("");
+        Serial.println("╔══════════════════════════╗");
+        Serial.print("║  按钮按下! 模式 → ");
+        if (btnMode == 0) Serial.println("停止  ║");
+        else if (btnMode == 1) Serial.println("正转  ║");
+        else Serial.println("反转  ║");
+        Serial.println("╚══════════════════════════╝");
+      }
+    }
+  }
+
+  btnLastReading = reading;                 // 每次都要记，用于下轮比较
 }
 
 // ============================================================
 // 初始化
 // ============================================================
 void setup() {
-  // 编码器引脚：输入模式
+  pinMode(BTN_PIN, INPUT_PULLUP);           // 按钮：内部上拉，按下=LOW
+
   pinMode(L_ENA, INPUT);
   pinMode(L_ENB, INPUT);
   pinMode(R_ENA, INPUT);
   pinMode(R_ENB, INPUT);
 
-  // 编码器中断：AB 相的每个跳变都触发，实现 4 倍频
   attachInterrupt(digitalPinToInterrupt(L_ENA), L_ENA_IRQ, CHANGE);
   attachInterrupt(digitalPinToInterrupt(L_ENB), L_ENB_IRQ, CHANGE);
   attachInterrupt(digitalPinToInterrupt(R_ENA), R_ENA_IRQ, CHANGE);
   attachInterrupt(digitalPinToInterrupt(R_ENB), R_ENB_IRQ, CHANGE);
 
-  // Timer1 定时器：50ms 周期（50000μs）
   Timer1.initialize(50000);
   Timer1.attachInterrupt(timerISR);
 
-  // 串口通信
   Serial.begin(115200);
-
-  // 电机初始化
+  motorA.begin();
   motorB.begin();
-  motorC.begin();
 
-  delay(1000);                              // 等待系统稳定
+  Serial.println("=== 电机测试就绪 ===");
+  Serial.println("按钮模式: 按1下=正转 / 按2下=反转 / 按3下=停止");
+  delay(1000);
 }
 
 // ============================================================
-// 主循环：检测 dataReady 标志，有新数据就打印
+// 主循环
 // ============================================================
 void loop() {
+  checkButton();                            // 每次循环都检查按钮进doMotor
+
   if (dataReady) {
     noInterrupts();
     dataReady = false;
     interrupts();
 
-    Serial.print("L Angle = ");
-    Serial.print(LAngle);
-    Serial.print("  R Angle = ");
-    Serial.print(RAngle);
-    Serial.print("  L speed = ");
+  if(btnMode!=0){
+    float errA = target_rpm - abs(LSpeed);
+    float errB = target_rpm - abs(RSpeed);
+    pwmA = pwmA + (int)(KP*errA);
+    pwmB = pwmB + (int)(KP*errB);
+    if(pwmA>255)pwmA=255;
+    if(pwmA<15)pwmA=15;
+    if(pwmB>255)pwmB=255;
+    if(pwmB<15)pwmB=15;
+    doMotor();
+
+    // 串口绘图器：三个通道（目标、左、右）
+    Serial.print(target_rpm);
+    Serial.print(",");
     Serial.print(LSpeed);
-    Serial.print("  R speed = ");
-    Serial.print(RSpeed);
-    Serial.print("  L distance = ");
-    Serial.print(Ldistance_m);
-    Serial.print("  R distance = ");
-    Serial.println(Rdistance_m);
+    Serial.print(",");
+    Serial.println(RSpeed);
+    }
+
+    // 每 10 次（500ms）才打印一次编码器，避免刷屏
+    printTick++;
+    if (printTick >= 10) {
+      printTick = 0;
+
+      // 当前模式标签
+      const char* modeStr = (btnMode == 0) ? "[停]" :
+                            (btnMode == 1) ? "[正]" : "[反]";
+
+      Serial.print(modeStr);
+      Serial.print(" L RPM=");
+      Serial.print(LSpeed);
+      Serial.print("  R RPM=");
+      Serial.print(RSpeed);
+      Serial.print("  L dist=");
+      Serial.print(Ldistance_m);
+      Serial.print("  R dist=");
+      Serial.println(Rdistance_m);
+    }
   }
 }
