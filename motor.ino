@@ -52,8 +52,8 @@ motor motorB(10, 24, 22, false);            // B电机：PWM=10, IN1=24, IN2=22
 
 #define target_rpm 150
 #define KP 0.5
-int pwmA = 150;
-int pwmB = 150;
+int pwmA = 0;
+int pwmB = 0;
 
 
 
@@ -219,15 +219,21 @@ void loop() {
     dataReady = false;
     interrupts();
 
-  if(btnMode!=0){
+if(btnMode!=0){
     float errA = target_rpm - abs(LSpeed);
     float errB = target_rpm - abs(RSpeed);
-    pwmA = pwmA + (int)(KP*errA);
-    pwmB = pwmB + (int)(KP*errB);
-    if(pwmA>255)pwmA=255;
-    if(pwmA<15)pwmA=15;
-    if(pwmB>255)pwmB=255;
-    if(pwmB<15)pwmB=15;
+    int deltaA = (int)(KP * errA);
+    int deltaB = (int)(KP * errB);
+    if(deltaA>50) deltaA=50;
+    if(deltaA<-50) deltaA=-50;    // 加上负向限制
+    if(deltaB>50) deltaB=50;
+    if(deltaB<-50) deltaB=-50;    // 加上负向限制
+    pwmA = pwmA + deltaA;
+    pwmB = pwmB + deltaB;         // 修正：pwmB + deltaB
+    if(pwmA > 255) pwmA = 255;
+    if(pwmA < 15) pwmA = 15;
+    if(pwmB > 255) pwmB = 255;
+    if(pwmB < 15) pwmB = 15;
     doMotor();
 
     // 串口绘图器：三个通道（目标、左、右）
