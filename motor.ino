@@ -1,5 +1,6 @@
 #include "motor.h"                         // 电机驱动库
 #include <TimerOne.h>                       // Mega 2560 定时器中断库（库管理器搜 TimerOne 安装）
+#include "Blue-smooth.h"
 
 // ============================================================
 // 编码器引脚定义
@@ -9,12 +10,6 @@
 #define L_ENB 3                             // 左编码器 B 相 — 中断引脚
 #define R_ENA 19                            // 右编码器 A 相 — 中断引脚
 #define R_ENB 18                            // 右编码器 B 相 — 中断引脚
-
-// ============================================================
-// 按钮引脚
-// 接法：按钮一脚接引脚，另一脚接 GND（用 INPUT_PULLUP，按下=LOW）
-// ============================================================
-#define BTN_PIN 6
 
 // ============================================================
 // 编码器脉冲计数器（volatile：ISR 和主循环共享，禁止编译器优化）
@@ -33,14 +28,6 @@ double LSpeed = 0, RSpeed = 0;              // 速度（RPM）
 float Ldistance_m = 0, Rdistance_m = 0;     // 距离（米）
 volatile bool dataReady = false;            // 新数据就绪标志
 
-// ============================================================
-// 按钮去抖 & 状态机
-// btnMode: 0=停止  1=正转  2=反转  （按一下换一个）
-// ============================================================
-int btnMode = 0;                            // 当前模式：0停 1正 2反
-int btnStable = HIGH;                       // 确认后的状态（稳定值）
-int btnLastReading = HIGH;                  // 上一次读到的原始值（用于检测跳变）
-unsigned long btnLastTime = 0;              // 最后一次跳变的时间（去抖用）
 int printTick = 0;                          // 打印计数器，每10次(500ms)才打印一次编码器
 
 // ============================================================
@@ -51,9 +38,15 @@ motor motorA(13, 26, 28, false);            // A电机：PWM=13, IN1=26, IN2=28
 motor motorB(10, 24, 22, false);            // B电机：PWM=10, IN1=24, IN2=22
 
 #define target_rpm 150
-#define KP 0.5
+#define KP_A 0.4
+#define KI_A 0.01
+#define KP_B 0.3
+#define KI_B 0.01
+float iTermA = 0,iTermB =0;
+
 int pwmA = 0;
 int pwmB = 0;
+int cmd = -1;
 
 
 
@@ -120,19 +113,21 @@ void timerISR() {
 }
 
 // ============================================================
-// 根据 btnMode 控制电机
+// 根据蓝牙命令控制电机
 // ============================================================
 void doMotor() {
-  switch (btnMode) {
-    case 0:  // 停止
+  switch (cmd) {
+    case 'x':  // 停止
       motorA.stop();
       motorB.stop();
+      iTermA = 0;
+      iTermB = 0;
       break;
-    case 1:  // 正转
+    case 'w':  // 正转
       motorA.forward(pwmA);
       motorB.forward(pwmB);
       break;
-    case 2:  // 反转
+    case 's':  // 反转
       motorA.backward(pwmA);
       motorB.backward(pwmB);
       break;
@@ -140,51 +135,9 @@ void doMotor() {
 }
 
 // ============================================================
-// 按钮检测（带去抖，检测"按下"那一瞬间）
-// 原理：
-//   btnLastReading — 每次 loop 都更新，用来发现电平跳变
-//   btnStable — 只有稳定超过 50ms 后才更新，用来判断"真按下"
-//   两个变量分开，就不会出现"证据被覆盖"的 bug
-// ============================================================
-void checkButton() {
-  int reading = digitalRead(BTN_PIN);
-
-  // 电平跳变了 → 重置计时器（可能是抖动，也可能是真按）
-  if (reading != btnLastReading) {
-    btnLastTime = millis();
-  }
-
-  // 稳定超过 50ms → reading 是可信的
-  if (millis() - btnLastTime > 50) {
-    // 可信值和之前不一样 → 真的变了
-    if (reading != btnStable) {
-      btnStable = reading;                  // 更新可信值
-
-      // 按下（INPUT_PULLUP 模式，LOW = 按下）
-      if (reading == LOW) {
-        btnMode++;
-        if (btnMode > 2) btnMode = 0;
-        doMotor();
-
-        Serial.println("");
-        Serial.println("╔══════════════════════════╗");
-        Serial.print("║  按钮按下! 模式 → ");
-        if (btnMode == 0) Serial.println("停止  ║");
-        else if (btnMode == 1) Serial.println("正转  ║");
-        else Serial.println("反转  ║");
-        Serial.println("╚══════════════════════════╝");
-      }
-    }
-  }
-
-  btnLastReading = reading;                 // 每次都要记，用于下轮比较
-}
-
-// ============================================================
 // 初始化
 // ============================================================
 void setup() {
-  pinMode(BTN_PIN, INPUT_PULLUP);           // 按钮：内部上拉，按下=LOW
 
   pinMode(L_ENA, INPUT);
   pinMode(L_ENB, INPUT);
@@ -200,11 +153,12 @@ void setup() {
   Timer1.attachInterrupt(timerISR);
 
   Serial.begin(115200);
+  initBlue();
   motorA.begin();
   motorB.begin();
 
   Serial.println("=== 电机测试就绪 ===");
-  Serial.println("按钮模式: 按1下=正转 / 按2下=反转 / 按3下=停止");
+  Serial.println("蓝牙模式: 按下w=正转 / 按下s=反转 / 按下x=停止");
   delay(1000);
 }
 
@@ -212,28 +166,44 @@ void setup() {
 // 主循环
 // ============================================================
 void loop() {
-  checkButton();                            // 每次循环都检查按钮进doMotor
+  int newCmd = Rx();
+  if (newCmd != -1) cmd = newCmd;
+  doMotor();
 
   if (dataReady) {
     noInterrupts();
     dataReady = false;
     interrupts();
 
-if(btnMode!=0){
+  if(cmd != 'x' && cmd != -1){
     float errA = target_rpm - abs(LSpeed);
     float errB = target_rpm - abs(RSpeed);
-    int deltaA = (int)(KP * errA);
-    int deltaB = (int)(KP * errB);
+
+    iTermA += errA;
+    iTermB += errB;
+    if (iTermA > 200)  iTermA = 200;
+    if (iTermA < -200) iTermA = -200;
+    if (iTermB > 200)  iTermB = 200;
+    if (iTermB < -200) iTermB = -200;
+
+
+    int deltaA = (int)(KP_A*errA+KI_A*iTermA);
+    int deltaB = (int)(KP_B*errB+KI_B*iTermB);
+
     if(deltaA>50) deltaA=50;
-    if(deltaA<-50) deltaA=-50;    // 加上负向限制
+    if(deltaA<-50) deltaA=-50;
     if(deltaB>50) deltaB=50;
-    if(deltaB<-50) deltaB=-50;    // 加上负向限制
+    if(deltaB<-50) deltaB=-50;
+
+
     pwmA = pwmA + deltaA;
-    pwmB = pwmB + deltaB;         // 修正：pwmB + deltaB
-    if(pwmA > 255) pwmA = 255;
-    if(pwmA < 15) pwmA = 15;
-    if(pwmB > 255) pwmB = 255;
-    if(pwmB < 15) pwmB = 15;
+    pwmB = pwmB + deltaB;
+
+
+    if(pwmA>255)pwmA=255;
+    if(pwmA<15)pwmA=15;
+    if(pwmB>255)pwmB=255;
+    if(pwmB<15)pwmB=15;
     doMotor();
 
     // 串口绘图器：三个通道（目标、左、右）
@@ -250,18 +220,19 @@ if(btnMode!=0){
       printTick = 0;
 
       // 当前模式标签
-      const char* modeStr = (btnMode == 0) ? "[停]" :
-                            (btnMode == 1) ? "[正]" : "[反]";
+      const char* modeStr = (cmd == 'x') ? "[停]" :
+                            (cmd == 'w') ? "[正]" : "[反]";
 
-      Serial.print(modeStr);
-      Serial.print(" L RPM=");
-      Serial.print(LSpeed);
-      Serial.print("  R RPM=");
-      Serial.print(RSpeed);
-      Serial.print("  L dist=");
-      Serial.print(Ldistance_m);
-      Serial.print("  R dist=");
-      Serial.println(Rdistance_m);
+      Serial2.print(modeStr);
+      Serial2.print(" L RPM=");
+      Serial2.print(LSpeed);
+      Serial2.print("  R RPM=");
+      Serial2.print(RSpeed);
+      Serial2.print("  L dist=");
+      Serial2.print(Ldistance_m);
+      Serial2.print("  R dist=");
+      Serial2.println(Rdistance_m);
+
     }
   }
 }
