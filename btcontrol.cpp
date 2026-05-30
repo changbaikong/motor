@@ -5,7 +5,7 @@
 motor motorA(13, 26, 28, false);
 motor motorB(10, 24, 22, false);
 motor motorC(9, 30, 32, false);
-motor motorD(8, 34, 36, false);
+motor motorD(8, 36, 34, false);
 
 int cmd = -1;
 

@@ -1,5 +1,6 @@
 #include "serialout.h"
 #include "encoder.h"
+#include "pidctrl.h"
 
 static int printTick = 0;
 
@@ -10,7 +11,9 @@ void plotterPrint() {
   Serial.print(",");
   Serial.print(CSpeed);
   Serial.print(",");
-  Serial.println(DSpeed);
+  Serial.print(DSpeed);
+  Serial.print(",");
+  Serial.println(target_rpm);
 }
 
 void debugPrint(int cmd) {

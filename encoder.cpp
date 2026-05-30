@@ -56,35 +56,35 @@ static void B_ENB_IRQ() {
   }
 }
 
-static void C_ENA_IRQ() {
-  if (digitalRead(C_ENA) ^ digitalRead(C_ENB)) {
-    C_EN_CNT--;
-  } else {
-    C_EN_CNT++;
-  }
-}
+// ============================================================
+// 编码器 C/D 共用 PCINT0 ISR（PORTB）
+//   C: 52=PB1=C_ENA, 53=PB0=C_ENB
+//   D: 50=PB3=D_ENA, 51=PB2=D_ENB
+// ============================================================
+ISR(PCINT0_vect) {
+  static uint8_t prevB = PINB;
+  uint8_t curB = PINB;
+  uint8_t chg = prevB ^ curB;
+  prevB = curB;
 
-static void C_ENB_IRQ() {
-  if (digitalRead(C_ENA) ^ digitalRead(C_ENB)) {
-    C_EN_CNT++;
-  } else {
-    C_EN_CNT--;
+  // --- 编码器 D（PB3=pin50=A相, PB2=pin51=B相） ---
+  if (chg & (1 << PB3)) {
+    if ((curB & (1 << PB3)) ^ (curB & (1 << PB2))) D_EN_CNT--;
+    else D_EN_CNT++;
   }
-}
-
-static void D_ENA_IRQ() {
-  if (digitalRead(D_ENA) ^ digitalRead(D_ENB)) {
-    D_EN_CNT--;
-  } else {
-    D_EN_CNT++;
+  if (chg & (1 << PB2)) {
+    if ((curB & (1 << PB3)) ^ (curB & (1 << PB2))) D_EN_CNT++;
+    else D_EN_CNT--;
   }
-}
 
-static void D_ENB_IRQ() {
-  if (digitalRead(D_ENA) ^ digitalRead(D_ENB)) {
-    D_EN_CNT++;
-  } else {
-    D_EN_CNT--;
+  // --- 编码器 C（PB1=pin52=C_ENA=A相, PB0=pin53=C_ENB=B相） ---
+  if (chg & (1 << PB0)) {  // C_ENB (B相) 跳变
+    if ((curB & (1 << PB0)) ^ (curB & (1 << PB1))) C_EN_CNT++;
+    else C_EN_CNT--;
+  }
+  if (chg & (1 << PB1)) {  // C_ENA (A相) 跳变
+    if ((curB & (1 << PB0)) ^ (curB & (1 << PB1))) C_EN_CNT--;
+    else C_EN_CNT++;
   }
 }
 
@@ -130,14 +130,17 @@ void encoderInit() {
   pinMode(D_ENA, INPUT);
   pinMode(D_ENB, INPUT);
 
+  // A/B: 硬件外部中断（INT4/5, INT2/3）
   attachInterrupt(digitalPinToInterrupt(A_ENA), A_ENA_IRQ, CHANGE);
   attachInterrupt(digitalPinToInterrupt(A_ENB), A_ENB_IRQ, CHANGE);
   attachInterrupt(digitalPinToInterrupt(B_ENA), B_ENA_IRQ, CHANGE);
   attachInterrupt(digitalPinToInterrupt(B_ENB), B_ENB_IRQ, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(C_ENA), C_ENA_IRQ, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(C_ENB), C_ENB_IRQ, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(D_ENA), D_ENA_IRQ, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(D_ENB), D_ENB_IRQ, CHANGE);
+
+  // C/D: 共用 PCINT0（PORTB）
+  //   C: PB1(pin52) + PB0(pin53), D: PB3(pin50) + PB2(pin51)
+  PCICR  |= (1 << PCIE0);
+  PCMSK0 |= (1 << PCINT3) | (1 << PCINT2)   // D
+          | (1 << PCINT1) | (1 << PCINT0);  // C
 }
 
 void timerCalcInit() {

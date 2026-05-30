@@ -5,16 +5,19 @@
 
 // ============================================================
 // 编码器引脚定义（AB = 后，CD = 前）
-// Mega 2560 支持的外部中断引脚：2, 3, 18, 19, 20, 21
+// Mega 2560 硬件外部中断: 2, 3, 18, 19 → A/B
+// 编码器 C/D 共用 PCINT0（PORTB）:
+//   C: 52=PB1, 53=PB0
+//   D: 50=PB3, 51=PB2
 // ============================================================
-#define A_ENA 2
-#define A_ENB 3
+#define A_ENA 3
+#define A_ENB 2
 #define B_ENA 19
 #define B_ENB 18
-#define C_ENA 4
-#define C_ENB 5
-#define D_ENA 6
-#define D_ENB 7
+#define C_ENA 52
+#define C_ENB 53
+#define D_ENA 50
+#define D_ENB 51
 
 // 编码器脉冲数（每圈）= 编码器线数 × 减速比
 #define ENC_PPR 1040
