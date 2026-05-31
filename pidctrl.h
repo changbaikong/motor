@@ -5,26 +5,29 @@
 
 #define target_rpm 150
 
-// KP: 降低减少起步超调，KD: 增强阻尼抑制振荡，KI: 减半避免慢摆
-#define KP_A 0.15
+// ★ KFF 沿用标定值，PID 还原最初版本
+//   KD=0.10 配合 ÷0.05 等于 2× 增益，注意高频抖动
+
+#define KFFA 0.0
+#define KP_A 0.12
 #define KI_A 0.06
-#define KD_A 0.10
+#define KD_A 0.06
 
-#define KP_B 0.15
+#define KFFB 0.0
+#define KP_B 0.12
 #define KI_B 0.06
-#define KD_B 0.10
+#define KD_B 0.06
 
-#define KP_C 0.18
+#define KFFC 0.0
+#define KP_C 0.12
 #define KI_C 0.06
-#define KD_C 0.10
+#define KD_C 0.06
 
-#define KP_D 0.18
+#define KFFD 0.0
+#define KP_D 0.12
 #define KI_D 0.06
-#define KD_D 0.10
+#define KD_D 0.06
 
-// KFF: 稳态 PWM = target × KFF ≈ 82.5
-#define KFF 0.55
-#define KFF 0.55
 
 extern float iTermA, iTermB, iTermC, iTermD;
 extern float   pwmA,  pwmB,  pwmC,  pwmD;
@@ -32,7 +35,7 @@ extern float lastSpeedA, lastSpeedB, lastSpeedC, lastSpeedD;
 
 // 执行一轮 PID 计算，更新 pwm
 // 参数：四个电机的当前 RPM
-void pidCompute(double speedA, double speedB, double speedC, double speedD);
+void pidCompute(double speedA, double speedB, double speedC, double speedD,float yawOffset);
 
 // 重置积分项（停止时调用）
 void pidReset();

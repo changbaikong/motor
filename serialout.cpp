@@ -1,6 +1,8 @@
+#include "HardwareSerial.h"
 #include "serialout.h"
 #include "encoder.h"
 #include "pidctrl.h"
+#include "imu.h"
 
 static int printTick = 0;
 
@@ -41,4 +43,6 @@ void debugPrint(int cmd) {
   Serial2.print(Cdistance_m);
   Serial2.print("  D dist=");
   Serial2.println(Ddistance_m);
+  Serial2.print("yaw=:");
+  Serial2.print(yaw);
 }

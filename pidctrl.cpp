@@ -1,29 +1,30 @@
 #include "pidctrl.h"
+#include "imupid.h"
 
 float iTermA = 0, iTermB = 0, iTermC = 0, iTermD = 0;
 float lastSpeedA = 0, lastSpeedB = 0, lastSpeedC = 0, lastSpeedD = 0;
 
 
-  float pwmA = target_rpm*KFF;
-  float pwmB = target_rpm*KFF;
-  float pwmC = target_rpm*KFF;
-  float pwmD = target_rpm*KFF;
+  float pwmA = 60;
+  float pwmB = 60;
+  float pwmC = 60;
+  float pwmD = 60;
   float filtSpeedA = 0, filtSpeedB = 0, filtSpeedC = 0, filtSpeedD = 0;
+  
 
+void pidCompute(double speedA, double speedB, double speedC, double speedD,float yawOffset) {
 
-void pidCompute(double speedA, double speedB, double speedC, double speedD) {
-
-  // === 低通滤波（α=0.3） ===
+  // === 低通滤波（统一 α=0.3） ===
   filtSpeedA = 0.7 * filtSpeedA + 0.3 * abs(speedA);
   filtSpeedB = 0.7 * filtSpeedB + 0.3 * abs(speedB);
   filtSpeedC = 0.7 * filtSpeedC + 0.3 * abs(speedC);
   filtSpeedD = 0.7 * filtSpeedD + 0.3 * abs(speedD);
 
 
-  float errA = target_rpm - filtSpeedA;
-  float errB = target_rpm - filtSpeedB;
-  float errC = target_rpm - filtSpeedC;
-  float errD = target_rpm - filtSpeedD;
+  float errA = (target_rpm+yawOffset) - filtSpeedA;
+  float errB = (target_rpm-yawOffset) - filtSpeedB;
+  float errC = (target_rpm+yawOffset) - filtSpeedC;
+  float errD = (target_rpm-yawOffset) - filtSpeedD;
 
 
   // === 积分项：条件积分（小误差积、大误差冻结） ===
@@ -113,8 +114,8 @@ void pidReset() {
   lastSpeedA = 0; lastSpeedB = 0; lastSpeedC = 0; lastSpeedD = 0;
   // 同时重置滤波值和 PWM 为前馈初始值，确保下次启动从干净状态出发
   filtSpeedA = 0; filtSpeedB = 0; filtSpeedC = 0; filtSpeedD = 0;
-  pwmA = target_rpm * KFF;
-  pwmB = target_rpm * KFF;
-  pwmC = target_rpm * KFF;
-  pwmD = target_rpm * KFF;
+  pwmA = 60;
+  pwmB = 60;
+  pwmC = 60;
+  pwmD = 60;
 }
