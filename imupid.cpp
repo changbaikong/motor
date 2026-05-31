@@ -20,14 +20,18 @@ lastime=now;
 //   return;
 // }
 
-float yaw_err = yawRef-yaw;
+float yaw_err = yaw - yawRef;
 
 float P = kp_yaw * yaw_err;
 
 iTerm += ki_yaw * yaw_err * dt;
 iTerm = constrain(iTerm, i_yaw_limit, i_yaw_max);
 
-float raw = P + iTerm;
+	static float lastYawErr = 0;
+	float D = kd_yaw * (yaw_err - lastYawErr) / dt;
+	lastYawErr = yaw_err;
+
+	float raw = P + iTerm + D;
 raw = constrain(raw, diff_yaw_limit, diff_yaw_max);
 diff_pwm = 0.2*diff_pwm + 0.8 * raw;
 

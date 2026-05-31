@@ -32,8 +32,8 @@ void loop() {
     interrupts();
 
     if (cmd != 'x' && cmd != -1) {
-      // yawctrComputer(yaw);  // 禁用 yaw PID
-      pidCompute(ASpeed, BSpeed, CSpeed, DSpeed, 0);
+      yawctrComputer(yaw);
+      pidCompute(ASpeed, BSpeed, CSpeed, DSpeed, diff_pwm);
 
       if (pwmA < 15) pwmA = 15;  if (pwmA > 255) pwmA = 255;
       if (pwmB < 15) pwmB = 15;  if (pwmB > 255) pwmB = 255;

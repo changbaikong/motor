@@ -5,9 +5,9 @@ float iTermA = 0, iTermB = 0, iTermC = 0, iTermD = 0;
 float lastSpeedA = 0, lastSpeedB = 0, lastSpeedC = 0, lastSpeedD = 0;
 
 
-  float pwmA = 60;
-  float pwmB = 60;
-  float pwmC = 60;
+  float pwmA = 40;   // 后轮响应猛，起步低
+  float pwmB = 40;
+  float pwmC = 60;   // 前轮需要多推一点
   float pwmD = 60;
   float filtSpeedA = 0, filtSpeedB = 0, filtSpeedC = 0, filtSpeedD = 0;
   
@@ -114,8 +114,8 @@ void pidReset() {
   lastSpeedA = 0; lastSpeedB = 0; lastSpeedC = 0; lastSpeedD = 0;
   // 同时重置滤波值和 PWM 为前馈初始值，确保下次启动从干净状态出发
   filtSpeedA = 0; filtSpeedB = 0; filtSpeedC = 0; filtSpeedD = 0;
-  pwmA = 60;
-  pwmB = 60;
+  pwmA = 40;
+  pwmB = 40;
   pwmC = 60;
   pwmD = 60;
 }
