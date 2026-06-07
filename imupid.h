@@ -4,7 +4,7 @@
 
 #include <Arduino.h>
 
-#define kp_yaw 3.0
+#define kp_yaw 3.1
 #define ki_yaw 0.5
 #define kd_yaw 0.5
 

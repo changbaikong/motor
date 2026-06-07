@@ -1,49 +1,53 @@
 #include "pidctrl.h"
 #include "imupid.h"
+#include "encoder.h"
 
 float iTermA = 0, iTermB = 0, iTermC = 0, iTermD = 0;
 float lastSpeedA = 0, lastSpeedB = 0, lastSpeedC = 0, lastSpeedD = 0;
 
+float pwmA = 0;   // 后轮响应猛，起步低
+float pwmB = 0;
+float pwmC = 0;   // 前轮需要多推一点
+float pwmD = 0;
 
-  float pwmA = 40;   // 后轮响应猛，起步低
-  float pwmB = 40;
-  float pwmC = 60;   // 前轮需要多推一点
-  float pwmD = 60;
-  float filtSpeedA = 0, filtSpeedB = 0, filtSpeedC = 0, filtSpeedD = 0;
-  
-
-void pidCompute(double speedA, double speedB, double speedC, double speedD,float yawOffset) {
-
-  // === 低通滤波（统一 α=0.3） ===
-  filtSpeedA = 0.7 * filtSpeedA + 0.3 * abs(speedA);
-  filtSpeedB = 0.7 * filtSpeedB + 0.3 * abs(speedB);
-  filtSpeedC = 0.7 * filtSpeedC + 0.3 * abs(speedC);
-  filtSpeedD = 0.7 * filtSpeedD + 0.3 * abs(speedD);
+int target_rpm = 100;
 
 
-  float errA = (target_rpm+yawOffset) - filtSpeedA;
-  float errB = (target_rpm-yawOffset) - filtSpeedB;
-  float errC = (target_rpm+yawOffset) - filtSpeedC;
-  float errD = (target_rpm-yawOffset) - filtSpeedD;
+void pidCompute(double speedA, double speedB, double speedC, double speedD,float yawOffset,double Adistance_m,double Bdistance_m,double Cdistance_m,double Ddistance_m ) {
+
+  // // === 里程计纠偏：暂不启用 ===
+  // float Leftdistance_m = (Adistance_m+Cdistance_m)/2;
+  // float Rightdistance_m = (Bdistance_m+Ddistance_m)/2;
+  // float localerr = Leftdistance_m-Rightdistance_m;
+  // float odomCorrection = localerr * 5.0;
+  // if (odomCorrection > 15)  odomCorrection = 15;
+  // if (odomCorrection < -15) odomCorrection = -15;
+
+  float fusedOffset = yawOffset;  // + odomCorrection;  // 偏航环+里程计均暂不启用
+
+  float errA = (target_rpm+fusedOffset) - abs(speedA);
+  float errB = (target_rpm-fusedOffset) - abs(speedB);
+  float errC = (target_rpm+fusedOffset) - abs(speedC);
+  float errD = (target_rpm-fusedOffset) - abs(speedD);
 
 
   // === 积分项：条件积分（小误差积、大误差冻结） ===
   // 改动：大误差时冻结 I，而不是清零。避免极限环振荡。
   if (abs(errA) < 15) {
-    iTermA += errA;
+    iTermA += errA * 0.5;
   }
   // else: iTermA 保持不变（冻结），不是清零
 
   if (abs(errB) < 15) {
-    iTermB += errB;
+    iTermB += errB * 0.5;
   }
 
   if (abs(errC) < 15) {
-    iTermC += errC;
+    iTermC += errC * 0.5;
   }
 
   if (abs(errD) < 15) {
-    iTermD += errD;
+    iTermD += errD * 0.5;
   }
 
   // iTerm 限幅从 ±25 → ±60，让积分有更大的调节范围
@@ -56,12 +60,22 @@ void pidCompute(double speedA, double speedB, double speedC, double speedD,float
   if (iTermD > 60)  iTermD = 60;
   if (iTermD < -60) iTermD = -60;
 
-  // === 微分项：KD 从 0.07 → 0.04 ===
+  // === 微分项：对测量值微分（Derivative on Measurement），避免 setpoint 变化 kick ===
   // Δt = 0.05s (50ms 定时器周期)
-  float dTermA = (-KD_A * (filtSpeedA - lastSpeedA) / 0.05f);
-  float dTermB = (-KD_B * (filtSpeedB - lastSpeedB) / 0.05f);
-  float dTermC = (-KD_C * (filtSpeedC - lastSpeedC) / 0.05f);
-  float dTermD = (-KD_D * (filtSpeedD - lastSpeedD) / 0.05f);
+  float dTermA = (-KD_A * (abs(speedA) - lastSpeedA) / 0.05f);
+  float dTermB = (-KD_B * (abs(speedB) - lastSpeedB) / 0.05f);
+  float dTermC = (-KD_C * (abs(speedC) - lastSpeedC) / 0.05f);
+  float dTermD = (-KD_D * (abs(speedD) - lastSpeedD) / 0.05f);
+
+  // D 项输出限幅，防止编码器噪声引起高频抖动
+  if (dTermA > 10)  dTermA = 10;
+  if (dTermA < -10) dTermA = -10;
+  if (dTermB > 10)  dTermB = 10;
+  if (dTermB < -10) dTermB = -10;
+  if (dTermC > 10)  dTermC = 10;
+  if (dTermC < -10) dTermC = -10;
+  if (dTermD > 10)  dTermD = 10;
+  if (dTermD < -10) dTermD = -10;
 
   // === PID 输出 ===
   float deltaA = (KP_A * errA + KI_A * iTermA + dTermA);
@@ -86,24 +100,30 @@ void pidCompute(double speedA, double speedB, double speedC, double speedD,float
   float newPwmC = pwmC + deltaC;
   float newPwmD = pwmD + deltaD;
 
+  newPwmA = 0.2 * pwmA + 0.8 * newPwmA;  // 降低滤波强度（0.5→0.2），加快响应
+  newPwmB = 0.2 * pwmB + 0.8 * newPwmB;
+  newPwmC = 0.2 * pwmC + 0.8 * newPwmC;
+  newPwmD = 0.2 * pwmD + 0.8 * newPwmD;
+
   if (newPwmA > 255) { newPwmA = 255; if (iTermA > 0) iTermA = 0; }
-  if (newPwmA < 15)  { newPwmA = 15;  if (iTermA < 0) iTermA = 0; }
+  if (newPwmA < 0)  { newPwmA = 0;  if (iTermA < 0) iTermA = 0; }
   if (newPwmB > 255) { newPwmB = 255; if (iTermB > 0) iTermB = 0; }
-  if (newPwmB < 15)  { newPwmB = 15;  if (iTermB < 0) iTermB = 0; }
+  if (newPwmB < 0)  { newPwmB = 0;  if (iTermB < 0) iTermB = 0; }
   if (newPwmC > 255) { newPwmC = 255; if (iTermC > 0) iTermC = 0; }
-  if (newPwmC < 15)  { newPwmC = 15;  if (iTermC < 0) iTermC = 0; }
+  if (newPwmC < 0)  { newPwmC = 0;  if (iTermC < 0) iTermC = 0; }
   if (newPwmD > 255) { newPwmD = 255; if (iTermD > 0) iTermD = 0; }
-  if (newPwmD < 15)  { newPwmD = 15;  if (iTermD < 0) iTermD = 0; }
+  if (newPwmD < 0)  { newPwmD = 0;  if (iTermD < 0) iTermD = 0; }
+
 
   pwmA = newPwmA;
   pwmB = newPwmB;
   pwmC = newPwmC;
   pwmD = newPwmD;
 
-  lastSpeedA = filtSpeedA;
-  lastSpeedB = filtSpeedB;
-  lastSpeedC = filtSpeedC;
-  lastSpeedD = filtSpeedD;
+  lastSpeedA = abs(speedA);
+  lastSpeedB = abs(speedB);
+  lastSpeedC = abs(speedC);
+  lastSpeedD = abs(speedD);
 }
 
 void pidReset() {
@@ -112,10 +132,8 @@ void pidReset() {
   iTermC = 0;
   iTermD = 0;
   lastSpeedA = 0; lastSpeedB = 0; lastSpeedC = 0; lastSpeedD = 0;
-  // 同时重置滤波值和 PWM 为前馈初始值，确保下次启动从干净状态出发
-  filtSpeedA = 0; filtSpeedB = 0; filtSpeedC = 0; filtSpeedD = 0;
-  pwmA = 40;
-  pwmB = 40;
-  pwmC = 60;
-  pwmD = 60;
+  pwmA = KFFA * target_rpm;   // 100 × 1.3 = 130，起步就在目标附近
+  pwmB = KFFB * target_rpm;
+  pwmC = KFFC * target_rpm;
+  pwmD = KFFD * target_rpm;
 }

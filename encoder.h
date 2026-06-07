@@ -5,25 +5,27 @@
 
 // ============================================================
 // 编码器引脚定义（AB = 后，CD = 前）
-// Mega 2560 硬件外部中断: 2, 3, 18, 19 → A/B
-// 编码器 C/D 共用 PCINT0（PORTB）:
-//   C: 52=PB1, 53=PB0
-//   D: 50=PB3, 51=PB2
+// 全部统一用 PCINT0（PORTB），8 条线一个 ISR，行为完全一致
+//   A: 10=PB4=A相, 11=PB5=B相
+//   B: 12=PB6=A相, 13=PB7=B相
+//   C: 52=PB1=A相, 53=PB0=B相
+//   D: 50=PB3=A相, 51=PB2=B相
 // ============================================================
-#define A_ENA 3
-#define A_ENB 2
-#define B_ENA 19
-#define B_ENB 18
+#define A_ENA 10
+#define A_ENB 11
+#define B_ENA 12
+#define B_ENB 13
 #define C_ENA 52
 #define C_ENB 53
 #define D_ENA 50
 #define D_ENB 51
 
-// 编码器脉冲数（每圈）= 编码器线数 × 减速比
-#define ENC_PPR 1040
+// 编码器脉冲数（每圈）= 编码器线数 × 4倍频 × 减速比
+// JGB37-520 霍尔传感器 11PPR × 4倍频 × 1:56减速比 = ?
+#define ENC_PPR 1300
 
 // 轮子周长（mm）
-#define WHEEL_CIRC_MM 151
+#define WHEEL_CIRC_MM 204
 
 // 定时器间隔（us），50ms = 50000us
 #define TIMER_US 50000

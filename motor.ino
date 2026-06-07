@@ -9,40 +9,64 @@
 const int16_t GYRO_Z_DEADZONE = 30;  // 与 imu.cpp 保持一致
 
 void setup() {
+  Serial.begin(115200);
   encoderInit();
   timerCalcInit();
   btcontrolInit();
-  initOLED();
-  initIMU();
-  yawctrlInit();
+  // initOLED();
+  // initIMU();
+  // yawctrlInit();
 
-  Serial.begin(115200);
-  Serial.println("=== 电机测试就绪（AB后 / CD前） ===");
+
+  Serial.println("=== 闭环测试模式（PWM=?，PID） ===");
   Serial.println("蓝牙模式: 按下w=正转 / 按下s=反转 / 按下x=停止");
   delay(1000);
 }
 
 void loop() {
   btcontrolRead();
-  doMotor();
+  
+  static int lastDirCmd = -1;
 
+  if(cmd == 'A'){
+    target_rpm += 20;
+    if (target_rpm > 200)target_rpm = 200; //限制加速;
+      Serial.print(">>>加速！ 目标 RPM =");
+      Serial.print(target_rpm);
+      cmd  = lastDirCmd;
+  }
+  else if (cmd == 'B'){
+    target_rpm -= 20;
+    if (target_rpm < 20) target_rpm = 20;
+      Serial.print("减速!目标RPM=");
+      Serial.print(target_rpm);
+      cmd = lastDirCmd;
+  }
+  else if (cmd == 'w' || cmd == 's' || cmd == 'a' || cmd == 'd'){
+    lastDirCmd = cmd;
+  }
+  else if (cmd == 'x'){
+    lastDirCmd = -1;
+  }
   if (dataReady) {
     noInterrupts();
     dataReady = false;
     interrupts();
 
     if (cmd != 'x' && cmd != -1) {
-      yawctrComputer(yaw);
-      pidCompute(ASpeed, BSpeed, CSpeed, DSpeed, diff_pwm);
+      // === PID 闭环计算（运动时才执行） ===
+      pidCompute(ASpeed, BSpeed, CSpeed, DSpeed, 0, Adistance_m, Bdistance_m, Cdistance_m, Ddistance_m);
 
-      if (pwmA < 15) pwmA = 15;  if (pwmA > 255) pwmA = 255;
-      if (pwmB < 15) pwmB = 15;  if (pwmB > 255) pwmB = 255;
-      if (pwmC < 15) pwmC = 15;  if (pwmC > 255) pwmC = 255;
-      if (pwmD < 15) pwmD = 15;  if (pwmD > 255) pwmD = 255;
-
-      doMotor();
-      plotterPrint();
+      if (pwmA < 0) pwmA = 0;  if (pwmA > 255) pwmA = 255;
+      if (pwmB < 0) pwmB = 0;  if (pwmB > 255) pwmB = 255;
+      if (pwmC < 0) pwmC = 0;  if (pwmC > 255) pwmC = 255;
+      if (pwmD < 0) pwmD = 0;  if (pwmD > 255) pwmD = 255;
     }
+
+    // doMotor 一定要放在 if 外面！
+    // 因为按 'x' 停止时也需要调用 doMotor() 来执行 motor.stop()
+    doMotor();
+    plotterPrint();
 
     debugPrint(cmd);
   }

@@ -7,6 +7,13 @@
 static int printTick = 0;
 
 void plotterPrint() {
+  // === RPM 模式 ===
+  // 前两条线是锚线（0和150），锁住 Y 轴不自动缩放
+  Serial.print(0);        // 锚线1：下限 0
+  Serial.print(",");
+  Serial.print(150);      // 锚线2：上限 150
+  Serial.print(",");
+  // 四条电机的 RPM
   Serial.print(ASpeed);
   Serial.print(",");
   Serial.print(BSpeed);
@@ -16,6 +23,17 @@ void plotterPrint() {
   Serial.print(DSpeed);
   Serial.print(",");
   Serial.println(target_rpm);
+
+  // === 脉冲计数模式（需要验证 PPR 时切换） ===
+  // Serial.print(A_EN_CNT);
+  // Serial.print(",");
+  // Serial.print(B_EN_CNT);
+  // Serial.print(",");
+  // Serial.print(C_EN_CNT);
+  // Serial.print(",");
+  // Serial.print(D_EN_CNT);
+  // Serial.print(",");
+  // Serial.println(0);
 }
 
 void debugPrint(int cmd) {
